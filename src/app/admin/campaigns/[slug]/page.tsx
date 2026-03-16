@@ -266,7 +266,7 @@ export default function CampaignDetailPage() {
                             className="text-xs text-orange-600 hover:text-orange-700 font-medium px-2 py-1 hover:bg-orange-50 rounded transition-colors disabled:opacity-50"
                             title="Enviar 100% do tráfego para este destino"
                           >
-                            {actionLoading === `winner-${dest.id}` ? "..." : "100%"}
+                            {actionLoading === `winner-${dest.id}` ? "..." : "🏆 Vencedor"}
                           </button>
                         )}
                         <button
