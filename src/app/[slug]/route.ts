@@ -55,8 +55,15 @@ export async function GET(
     // Fire-and-forget click tracking
     redis.hincrby(`campaign:${slug}:clicks`, target.id, 1).catch(() => {});
 
+    // Build destination URL with UTM params forwarded
+    const destinationUrl = new URL(target.url);
+    const incomingParams = request.nextUrl.searchParams;
+    incomingParams.forEach((value, key) => {
+      destinationUrl.searchParams.set(key, value);
+    });
+
     // 302 redirect (temporary - browser must not cache)
-    return NextResponse.redirect(target.url, 302);
+    return NextResponse.redirect(destinationUrl.toString(), 302);
   } catch {
     return NextResponse.json(
       { error: "Erro interno" },
