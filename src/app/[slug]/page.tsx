@@ -1,88 +1,67 @@
-"use client";
+import { redis } from "@/lib/kv";
+import type { Campaign, Destination } from "@/lib/types";
+import { notFound } from "next/navigation";
+import ClientRedirect from "./client-redirect";
 
-import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+interface Props {
+  params: Promise<{ slug: string }>;
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}
 
-export default function RedirectPage() {
-  const params = useParams();
-  const slug = params.slug as string;
-  const [error, setError] = useState<string | null>(null);
+export default async function RedirectPage({ params, searchParams }: Props) {
+  const { slug } = await params;
+  const query = await searchParams;
 
-  useEffect(() => {
-    async function doRedirect() {
-      try {
-        // Use window.location.search directly - more reliable than useSearchParams
-        const fullSearch = window.location.search;
-        const apiUrl = `/api/go/${slug}${fullSearch}`;
-
-        const res = await fetch(apiUrl);
-        const data = await res.json();
-
-        if (data.error) {
-          setError(data.error);
-          return;
-        }
-
-        // Wait for UTMify scripts to capture UTMs before redirecting
-        setTimeout(() => {
-          // Let UTMify append its params to the destination URL
-          const destUrl = new URL(data.url);
-
-          // Also grab all current URL params and force-append to destination
-          const currentParams = new URLSearchParams(window.location.search);
-          currentParams.forEach((value, key) => {
-            if (!destUrl.searchParams.has(key)) {
-              destUrl.searchParams.set(key, value);
-            }
-          });
-
-          window.location.href = destUrl.toString();
-        }, 1200);
-      } catch {
-        setError("Erro ao redirecionar");
-      }
-    }
-
-    doRedirect();
-  }, [slug]);
-
-  if (error) {
-    return (
-      <div style={{
-        display: "flex",
-        justifyContent: "center",
-        alignItems: "center",
-        height: "100vh",
-        fontFamily: "sans-serif",
-        color: "#666"
-      }}>
-        <p>{error}</p>
-      </div>
-    );
+  // Reserved paths
+  const RESERVED = new Set(["admin", "api", "favicon.ico", "_next"]);
+  if (RESERVED.has(slug)) {
+    notFound();
   }
 
-  return (
-    <div style={{
-      display: "flex",
-      justifyContent: "center",
-      alignItems: "center",
-      height: "100vh",
-      fontFamily: "sans-serif",
-      color: "#999"
-    }}>
-      <div style={{ textAlign: "center" }}>
-        <div style={{
-          width: 32,
-          height: 32,
-          border: "3px solid #e5e7eb",
-          borderTop: "3px solid #3b82f6",
-          borderRadius: "50%",
-          animation: "spin 0.8s linear infinite",
-          margin: "0 auto 12px"
-        }} />
-        <p>Redirecionando...</p>
-        <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
-      </div>
-    </div>
-  );
+  try {
+    const pipeline = redis.pipeline();
+    pipeline.hgetall(`campaign:${slug}`);
+    pipeline.zrange(`campaign:${slug}:destinations`, 0, -1);
+    pipeline.incr(`campaign:${slug}:counter`);
+
+    const results = await pipeline.exec();
+    const campaign = results[0] as Campaign | null;
+    const rawDestinations = results[1] as string[];
+    const counter = results[2] as number;
+
+    if (!campaign || !campaign.id || !rawDestinations || rawDestinations.length === 0) {
+      notFound();
+    }
+
+    const destinations: Destination[] = rawDestinations.map((raw) =>
+      typeof raw === "string" ? JSON.parse(raw) : (raw as unknown as Destination)
+    );
+
+    let target: Destination;
+
+    if (campaign.winnerId && campaign.winnerId !== "null") {
+      const winner = destinations.find((d) => d.id === campaign.winnerId);
+      target = winner || destinations[0];
+    } else {
+      const index = (counter - 1) % destinations.length;
+      target = destinations[index];
+    }
+
+    // Fire-and-forget click tracking
+    redis.hincrby(`campaign:${slug}:clicks`, target.id, 1).catch(() => {});
+
+    // Build destination URL with UTM params
+    const destinationUrl = new URL(target.url);
+    Object.entries(query).forEach(([key, value]) => {
+      if (typeof value === "string") {
+        destinationUrl.searchParams.set(key, value);
+      } else if (Array.isArray(value)) {
+        destinationUrl.searchParams.set(key, value[0] || "");
+      }
+    });
+
+    return <ClientRedirect url={destinationUrl.toString()} />;
+  } catch {
+    notFound();
+  }
 }
