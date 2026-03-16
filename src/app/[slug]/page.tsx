@@ -1,20 +1,19 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams, useSearchParams } from "next/navigation";
+import { useParams } from "next/navigation";
 
 export default function RedirectPage() {
   const params = useParams();
-  const searchParams = useSearchParams();
   const slug = params.slug as string;
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     async function doRedirect() {
       try {
-        // Build query string to forward UTMs
-        const queryString = searchParams.toString();
-        const apiUrl = `/api/go/${slug}${queryString ? `?${queryString}` : ""}`;
+        // Use window.location.search directly - more reliable than useSearchParams
+        const fullSearch = window.location.search;
+        const apiUrl = `/api/go/${slug}${fullSearch}`;
 
         const res = await fetch(apiUrl);
         const data = await res.json();
@@ -24,17 +23,28 @@ export default function RedirectPage() {
           return;
         }
 
-        // Wait a moment for UTMify scripts to capture UTMs before redirecting
+        // Wait for UTMify scripts to capture UTMs before redirecting
         setTimeout(() => {
-          window.location.href = data.url;
-        }, 800);
+          // Let UTMify append its params to the destination URL
+          const destUrl = new URL(data.url);
+
+          // Also grab all current URL params and force-append to destination
+          const currentParams = new URLSearchParams(window.location.search);
+          currentParams.forEach((value, key) => {
+            if (!destUrl.searchParams.has(key)) {
+              destUrl.searchParams.set(key, value);
+            }
+          });
+
+          window.location.href = destUrl.toString();
+        }, 1200);
       } catch {
         setError("Erro ao redirecionar");
       }
     }
 
     doRedirect();
-  }, [slug, searchParams]);
+  }, [slug]);
 
   if (error) {
     return (
