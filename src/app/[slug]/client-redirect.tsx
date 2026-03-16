@@ -5,18 +5,16 @@ import { useEffect } from "react";
 export default function ClientRedirect({ url }: { url: string }) {
   useEffect(() => {
     // Wait for UTMify scripts to load and capture UTMs
-    setTimeout(() => {
-      // Also append any params from current URL that might not be in the server-built URL
-      const destUrl = new URL(url);
-      const currentParams = new URLSearchParams(window.location.search);
-      currentParams.forEach((value, key) => {
-        if (!destUrl.searchParams.has(key)) {
-          destUrl.searchParams.set(key, value);
-        }
-      });
+    // Redirect almost instantly - UTMify scripts load async in parallel
+    const destUrl = new URL(url);
+    const currentParams = new URLSearchParams(window.location.search);
+    currentParams.forEach((value, key) => {
+      if (!destUrl.searchParams.has(key)) {
+        destUrl.searchParams.set(key, value);
+      }
+    });
 
-      window.location.href = destUrl.toString();
-    }, 1000);
+    window.location.href = destUrl.toString();
   }, [url]);
 
   return (
